@@ -1,0 +1,424 @@
+/*
+Alberta Car CRM - Single-file React component (Tailwind + shadcn/ui-ready)
+
+How to use:
+- This file is a self-contained React component you can drop into a Vite/Next.js app.
+- TailwindCSS must be configured in the project.
+- shadcn/ui and lucide-react imports are optional — the component is written to work without them but includes commented import hints.
+
+Features in this demo:
+- Lead list with stages (New, Contacted, Test Drive, Negotiation, Won, Lost)
+- Lead detail panel: contact info, notes, tasks, appointment date/time (America/Edmonton timezone assumed)
+- Quick actions: call, SMS (placeholders), email (placeholders)
+- Local persistence using localStorage (demo). Replace with API calls to your backend.
+- CSV import/export helpers (stubbed UI + utility functions)
+- Filters, search, automated follow-up reminders (basic recurring reminder generator)
+
+Integration suggestions (not implemented here):
+- SMS: Twilio (use REST API + webhook for inbound replies)
+- Email: SendGrid, Mailgun, or SMTP
+- Calendar / Appointments: Google Calendar API / Microsoft Graph
+- Auth & DB: Supabase, Firebase, or Postgres + Hasura
+- Hosting: Vercel / Netlify / Fly / Railway
+
+Data model (suggested):
+Lead: { id, firstName, lastName, phone, email, vehicleInterested, source, stage, notes: [{id, text, createdAt}], tasks: [{id, text, dueDate, done}], appointment: {datetime, location}, createdAt, updatedAt }
+
+API endpoints (example):
+GET /api/leads
+POST /api/leads
+PUT /api/leads/:id
+DELETE /api/leads/:id
+POST /api/leads/:id/send-sms
+POST /api/leads/:id/send-email
+
+*/
+
+import React, { useEffect, useState, useMemo } from "react";
+// Optional UI imports (if you have shadcn/ui & lucide-react installed):
+// import { Button } from "@/components/ui/button";
+// import { Phone, Mail, Calendar } from "lucide-react";
+
+// Utility: generate id
+const uid = () => Math.random().toString(36).slice(2, 9);
+
+const STAGES = ["New", "Contacted", "Test Drive", "Negotiation", "Won", "Lost"];
+
+const sampleLeads = [
+  {
+    id: "l1",
+    firstName: "Alex",
+    lastName: "Reid",
+    phone: "+1 (780) 555-0123",
+    email: "alex.reid@example.com",
+    vehicleInterested: "2021 Toyota RAV4",
+    source: "Website",
+    stage: "New",
+    notes: [
+      { id: uid(), text: "Asked about financing options.", createdAt: new Date().toISOString() },
+    ],
+    tasks: [
+      { id: uid(), text: "Follow up by phone", dueDate: null, done: false },
+    ],
+    appointment: null,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
+];
+
+export default function AlbertaCarCRM() {
+  const [leads, setLeads] = useState(() => {
+    try {
+      const raw = localStorage.getItem("alberta_crm_leads_v1");
+      return raw ? JSON.parse(raw) : sampleLeads;
+    } catch (e) {
+      return sampleLeads;
+    }
+  });
+
+  const [selectedId, setSelectedId] = useState(leads[0]?.id ?? null);
+  const [query, setQuery] = useState("");
+  const [stageFilter, setStageFilter] = useState("");
+  const [showAdd, setShowAdd] = useState(false);
+
+  useEffect(() => {
+    localStorage.setItem("alberta_crm_leads_v1", JSON.stringify(leads));
+  }, [leads]);
+
+  const selectedLead = useMemo(() => leads.find((l) => l.id === selectedId) ?? null, [leads, selectedId]);
+
+  // CRUD helpers
+  function addLead(payload) {
+    const newLead = {
+      id: uid(),
+      firstName: payload.firstName || "",
+      lastName: payload.lastName || "",
+      phone: payload.phone || "",
+      email: payload.email || "",
+      vehicleInterested: payload.vehicleInterested || "",
+      source: payload.source || "Walk-in",
+      stage: "New",
+      notes: [],
+      tasks: [],
+      appointment: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    setLeads((s) => [newLead, ...s]);
+    setSelectedId(newLead.id);
+  }
+
+  function updateLead(id, patch) {
+    setLeads((s) => s.map((l) => (l.id === id ? { ...l, ...patch, updatedAt: new Date().toISOString() } : l)));
+  }
+
+  function deleteLead(id) {
+    setLeads((s) => s.filter((l) => l.id !== id));
+    setSelectedId((prev) => (prev === id ? (leads[0] ? leads[0].id : null) : prev));
+  }
+
+  // Notes & tasks
+  function addNote(id, text) {
+    if (!text) return;
+    const note = { id: uid(), text, createdAt: new Date().toISOString() };
+    setLeads((s) => s.map((l) => (l.id === id ? { ...l, notes: [note, ...l.notes], updatedAt: new Date().toISOString() } : l)));
+  }
+
+  function addTask(id, text, dueDate = null) {
+    if (!text) return;
+    const t = { id: uid(), text, dueDate, done: false };
+    setLeads((s) => s.map((l) => (l.id === id ? { ...l, tasks: [t, ...l.tasks], updatedAt: new Date().toISOString() } : l)));
+  }
+
+  function toggleTask(id, taskId) {
+    setLeads((s) =>
+      s.map((l) =>
+        l.id === id
+          ? { ...l, tasks: l.tasks.map((t) => (t.id === taskId ? { ...t, done: !t.done } : t)), updatedAt: new Date().toISOString() }
+          : l
+      )
+    );
+  }
+
+  // Appointment booking (stores local timezone datetime string)
+  function setAppointment(id, datetime, location) {
+    setLeads((s) => s.map((l) => (l.id === id ? { ...l, appointment: { datetime, location }, updatedAt: new Date().toISOString() } : l)));
+  }
+
+  // Quick actions (placeholders) — replace with API calls
+  function sendSms(id, message) {
+    // TODO: call your backend -> Twilio
+    alert(`(Demo) SMS to lead ${id}: "${message}"`);
+  }
+
+  function callLead(phone) {
+    // On mobile, `tel:` works. In desktop demo we just show an alert.
+    window.location.href = `tel:${phone}`;
+  }
+
+  function sendEmail(id, subject, body) {
+    // TODO: integrate SendGrid / Email API
+    alert(`(Demo) Email to lead ${id}: subject="${subject}"`);
+  }
+
+  // Import / Export CSV helpers (basic)
+  function exportCSV() {
+    const header = ["id", "firstName", "lastName", "phone", "email", "vehicleInterested", "source", "stage"].join(",");
+    const rows = leads.map((l) => [l.id, l.firstName, l.lastName, l.phone, l.email, `"${l.vehicleInterested}"`, l.source, l.stage].join(","));
+    const csv = [header, ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "alberta_crm_leads.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function importCSV(file) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = e.target.result;
+      const lines = text.split(/\r?\n/).map((r) => r.trim()).filter(Boolean);
+      if (lines.length < 2) return alert("CSV looks empty");
+      const headers = lines[0].split(",").map((h) => h.trim());
+      const items = lines.slice(1).map((ln) => {
+        const values = ln.split(",");
+        const obj = {};
+        headers.forEach((h, i) => (obj[h] = (values[i] || "").replace(/^\"|\"$/g, "")));
+        return {
+          id: obj.id || uid(),
+          firstName: obj.firstName || "",
+          lastName: obj.lastName || "",
+          phone: obj.phone || "",
+          email: obj.email || "",
+          vehicleInterested: obj.vehicleInterested || "",
+          source: obj.source || "",
+          stage: obj.stage || "New",
+          notes: [],
+          tasks: [],
+          appointment: null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+      });
+      setLeads((s) => [...items, ...s]);
+    };
+    reader.readAsText(file);
+  }
+
+  // Filters
+  const filtered = leads.filter((l) => {
+    const q = query.toLowerCase();
+    if (stageFilter && l.stage !== stageFilter) return false;
+    if (!q) return true;
+    return (
+      l.firstName.toLowerCase().includes(q) ||
+      l.lastName.toLowerCase().includes(q) ||
+      (l.phone || "").toLowerCase().includes(q) ||
+      (l.email || "").toLowerCase().includes(q) ||
+      (l.vehicleInterested || "").toLowerCase().includes(q)
+    );
+  });
+
+  // Simple follow-up suggestion: leads in 'New' older than 2 days
+  const followUps = leads.filter((l) => {
+    if (l.stage !== "New") return false;
+    const created = new Date(l.createdAt);
+    const ageDays = (Date.now() - created.getTime()) / (1000 * 60 * 60 * 24);
+    return ageDays >= 2;
+  });
+
+  return (
+    <div className="min-h-screen bg-gray-50 p-4 font-sans">
+      <header className="max-w-7xl mx-auto mb-4 flex items-center justify-between">
+        <h1 className="text-2xl font-bold">Alberta Car CRM</h1>
+        <div className="flex items-center gap-3">
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search leads..."
+            className="px-3 py-2 border rounded-md"
+          />
+          <select value={stageFilter} onChange={(e) => setStageFilter(e.target.value)} className="px-2 py-2 border rounded-md">
+            <option value="">All stages</option>
+            {STAGES.map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+          <button onClick={() => setShowAdd(true)} className="px-3 py-2 bg-blue-600 text-white rounded-md">+ New Lead</button>
+          <button onClick={exportCSV} className="px-3 py-2 bg-gray-200 rounded-md">Export</button>
+          <label className="px-3 py-2 bg-gray-200 rounded-md cursor-pointer">
+            Import
+            <input onChange={(e) => e.target.files && importCSV(e.target.files[0])} type="file" accept=".csv" className="hidden" />
+          </label>
+        </div>
+      </header>
+
+      <main className="max-w-7xl mx-auto grid grid-cols-12 gap-4">
+        <aside className="col-span-4 bg-white p-3 rounded-md shadow-sm">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="font-semibold">Leads ({filtered.length})</h2>
+            <div className="text-sm text-gray-500">Follow-ups: {followUps.length}</div>
+          </div>
+
+          <div className="space-y-2 max-h-[60vh] overflow-auto">
+            {filtered.map((l) => (
+              <div key={l.id} onClick={() => setSelectedId(l.id)} className={`p-2 rounded-md cursor-pointer border ${selectedId === l.id ? 'border-blue-400 bg-blue-50' : 'border-transparent hover:bg-gray-50'}`}>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="font-medium">{l.firstName} {l.lastName}</div>
+                    <div className="text-sm text-gray-500">{l.vehicleInterested}</div>
+                  </div>
+                  <div className="text-sm text-gray-600">{l.stage}</div>
+                </div>
+                <div className="mt-1 text-xs text-gray-500">{l.phone} • {l.source}</div>
+              </div>
+            ))}
+          </div>
+        </aside>
+
+        <section className="col-span-8 bg-white p-4 rounded-md shadow-sm">
+          {selectedLead ? (
+            <LeadDetail
+              lead={selectedLead}
+              onUpdate={(patch) => updateLead(selectedLead.id, patch)}
+              onAddNote={(txt) => addNote(selectedLead.id, txt)}
+              onAddTask={(txt, due) => addTask(selectedLead.id, txt, due)}
+              onToggleTask={(taskId) => toggleTask(selectedLead.id, taskId)}
+              onDelete={() => { if (confirm('Delete lead?')) deleteLead(selectedLead.id); }}
+              onSendSms={(msg) => sendSms(selectedLead.id, msg)}
+              onCall={() => callLead(selectedLead.phone)}
+              onEmail={(sub, body) => sendEmail(selectedLead.id, sub, body)}
+              onSetAppointment={(dt, loc) => setAppointment(selectedLead.id, dt, loc)}
+            />
+          ) : (
+            <div className="text-gray-500">No lead selected</div>
+          )}
+        </section>
+      </main>
+
+      {showAdd && (
+        <AddLeadModal onClose={() => setShowAdd(false)} onCreate={(p) => { addLead(p); setShowAdd(false); }} />
+      )}
+    </div>
+  );
+}
+
+function LeadDetail({ lead, onUpdate, onAddNote, onAddTask, onToggleTask, onDelete, onSendSms, onCall, onEmail, onSetAppointment }) {
+  const [noteText, setNoteText] = useState("");
+  const [taskText, setTaskText] = useState("");
+  const [apptDate, setApptDate] = useState(lead.appointment ? lead.appointment.datetime : "");
+  const [apptLocation, setApptLocation] = useState(lead.appointment ? lead.appointment.location : "Dealership");
+
+  useEffect(() => {
+    setApptDate(lead.appointment ? lead.appointment.datetime : "");
+    setApptLocation(lead.appointment ? lead.appointment.location : "Dealership");
+  }, [lead]);
+
+  return (
+    <div>
+      <div className="flex items-start justify-between">
+        <div>
+          <h2 className="text-xl font-semibold">{lead.firstName} {lead.lastName}</h2>
+          <div className="text-sm text-gray-600">{lead.phone} • {lead.email}</div>
+          <div className="mt-1 text-sm text-gray-500">Interested in: {lead.vehicleInterested}</div>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={() => onCall()} className="px-3 py-2 border rounded-md">Call</button>
+          <button onClick={() => { const msg = prompt('SMS message'); if (msg) onSendSms(msg); }} className="px-3 py-2 border rounded-md">SMS</button>
+          <button onClick={() => { const sub = prompt('Email subject'); const body = prompt('Email body'); if (sub) onEmail(sub, body); }} className="px-3 py-2 border rounded-md">Email</button>
+          <button onClick={onDelete} className="px-3 py-2 bg-red-100 rounded-md">Delete</button>
+        </div>
+      </div>
+
+      <div className="mt-4 grid grid-cols-3 gap-4">
+        <div className="col-span-1">
+          <label className="block text-sm text-gray-600">Stage</label>
+          <select value={lead.stage} onChange={(e) => onUpdate({ stage: e.target.value })} className="mt-1 w-full px-2 py-2 border rounded-md">
+            {STAGES.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+        <div className="col-span-2">
+          <label className="block text-sm text-gray-600">Source</label>
+          <input value={lead.source} onChange={(e) => onUpdate({ source: e.target.value })} className="mt-1 w-full px-2 py-2 border rounded-md" />
+        </div>
+      </div>
+
+      <div className="mt-6">
+        <h3 className="font-semibold">Notes</h3>
+        <div className="mt-2 flex gap-2">
+          <input value={noteText} onChange={(e) => setNoteText(e.target.value)} placeholder="Add a note..." className="flex-1 px-2 py-2 border rounded-md" />
+          <button onClick={() => { onAddNote(noteText); setNoteText(""); }} className="px-3 py-2 bg-green-600 text-white rounded-md">Add</button>
+        </div>
+        <div className="mt-2 space-y-2 max-h-36 overflow-auto">
+          {lead.notes.map((n) => (
+            <div key={n.id} className="text-sm border p-2 rounded-md bg-gray-50">{n.text} <div className="text-xs text-gray-400">{new Date(n.createdAt).toLocaleString()}</div></div>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-6">
+        <h3 className="font-semibold">Tasks</h3>
+        <div className="mt-2 flex gap-2">
+          <input value={taskText} onChange={(e) => setTaskText(e.target.value)} placeholder="New task..." className="flex-1 px-2 py-2 border rounded-md" />
+          <button onClick={() => { onAddTask(taskText); setTaskText(""); }} className="px-3 py-2 bg-indigo-600 text-white rounded-md">Add</button>
+        </div>
+        <div className="mt-2 space-y-2">
+          {lead.tasks.map((t) => (
+            <div key={t.id} className="flex items-center gap-2">
+              <input type="checkbox" checked={t.done} onChange={() => onToggleTask(t.id)} />
+              <div className={`flex-1 ${t.done ? 'line-through text-gray-400' : ''}`}>{t.text} {t.dueDate && <span className="text-xs text-gray-500">• due {new Date(t.dueDate).toLocaleString()}</span>}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-6">
+        <h3 className="font-semibold">Appointment</h3>
+        <div className="mt-2 flex gap-2 items-center">
+          <input type="datetime-local" value={apptDate || ""} onChange={(e) => setApptDate(e.target.value)} className="px-2 py-2 border rounded-md" />
+          <input value={apptLocation} onChange={(e) => setApptLocation(e.target.value)} className="px-2 py-2 border rounded-md" />
+          <button onClick={() => { if (!apptDate) return alert('Pick a date'); onSetAppointment(apptDate, apptLocation); }} className="px-3 py-2 bg-yellow-500 rounded-md">Save</button>
+        </div>
+        {lead.appointment && (
+          <div className="mt-2 text-sm text-gray-600">{new Date(lead.appointment.datetime).toLocaleString()} • {lead.appointment.location}</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AddLeadModal({ onClose, onCreate }) {
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [vehicle, setVehicle] = useState("");
+  const [source, setSource] = useState("Walk-in");
+
+  function submit() {
+    if (!firstName && !lastName) return alert('Please provide a name');
+    onCreate({ firstName, lastName, phone, email, vehicleInterested: vehicle, source });
+  }
+
+  return (
+    <div className="fixed inset-0 flex items-center justify-center bg-black/30">
+      <div className="bg-white p-4 rounded-md w-96">
+        <h3 className="font-semibold">Add Lead</h3>
+        <div className="mt-2 space-y-2">
+          <input value={firstName} onChange={(e) => setFirstName(e.target.value)} placeholder="First name" className="w-full px-2 py-2 border rounded-md" />
+          <input value={lastName} onChange={(e) => setLastName(e.target.value)} placeholder="Last name" className="w-full px-2 py-2 border rounded-md" />
+          <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone" className="w-full px-2 py-2 border rounded-md" />
+          <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" className="w-full px-2 py-2 border rounded-md" />
+          <input value={vehicle} onChange={(e) => setVehicle(e.target.value)} placeholder="Vehicle interested" className="w-full px-2 py-2 border rounded-md" />
+          <input value={source} onChange={(e) => setSource(e.target.value)} placeholder="Source" className="w-full px-2 py-2 border rounded-md" />
+        </div>
+        <div className="mt-4 flex justify-end gap-2">
+          <button onClick={onClose} className="px-3 py-2 border rounded-md">Cancel</button>
+          <button onClick={submit} className="px-3 py-2 bg-blue-600 text-white rounded-md">Create</button>
+        </div>
+      </div>
+    </div>
+  );
+}
